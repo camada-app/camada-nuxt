@@ -61,7 +61,8 @@ so an unprovisioned environment behaves exactly as if camada were not installed.
    response's `finish` with the real `statusCode` — a Node response, or the mock a web preset
    provides; `st` is null only for an event without a response object at all. Your own
    `readBody()` still sees the request body (the middleware hands h3 the stream it built), and
-   Nitro's internal `$fetch` / `useFetch` during SSR is left to the outer request: one page view
+   Nitro's internal `event.$fetch` / `useFetch` during SSR is left to the outer request (found on the
+   inner request's `__unenv__` context; a bare `$fetch` with no event is a request of its own): one page view
    is one event.
 
 A first visit is given the shared `_sfp` session cookie through h3's `setCookie` before your
