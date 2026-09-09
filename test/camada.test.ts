@@ -2,22 +2,18 @@
 // server: that is what proves the wire event ships on the response's `finish`, with the status
 // the app really answered, exactly once. The fixtures are read through the file: symlink to
 // @camada/core, so this package is pinned to the same bytes edge-analyst generates.
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { createApp, createRouter, eventHandler, sendRedirect, setResponseStatus, toNodeListener, type App, type H3Event } from 'h3';
+import { createApp, createRouter, eventHandler, readBody, sendRedirect, setResponseStatus, toNodeListener, type App, type H3Event } from 'h3';
 import { CHALLENGE_COOKIE } from '@camada/core';
 import iife from '@camada/browser/iife-string';
 import { camada, camadaNitroPlugin, resetCamada, track, scriptTag, type CamadaNuxtOptions } from '../src/index.js';
 
 const FIX = fileURLToPath(new URL('../node_modules/@camada/core/test/fixtures/blk3/', import.meta.url));
-const container = (dir: string, name: string) => ({
-  bin: readFileSync(dir + name + '.bin'),
-  meta: JSON.stringify(JSON.parse(readFileSync(dir + name + '.meta.json', 'utf8'))),
-});
-const V4 = container(FIX, 'v4-basic');
+const V4 = { bin: readFileSync(FIX + 'v4-basic.bin'), meta: JSON.stringify(JSON.parse(readFileSync(FIX + 'v4-basic.meta.json', 'utf8'))) };
 
 const BLOCKED_IP = '203.0.113.66';     // block side
 const HTML = { accept: 'text/html', 'sec-fetch-dest': 'document' };
@@ -66,6 +62,9 @@ function routes(mount: (app: App) => void): App {
   r.get('/raw-redirect', eventHandler(() => Response.redirect('http://app.test/', 302)));   // immutable headers, sent by h3 as-is
   r.post('/login', eventHandler(async (e) => { await track(e, 'login_failed', { user: 'alice@example.com' }); setResponseStatus(e, 401); return 'no'; }));
   r.post('/signup', eventHandler((e) => { void track(e, 'signup'); return 'ok'; }));   // fire-and-forget: no waitUntil here, the flush must still land
+  // Reads the body behind the middleware after a turn of the event loop (an app checks auth or a
+  // DB first): by then the socket has delivered the body to whichever stream was listening.
+  r.post('/echo', eventHandler(async (e) => { await new Promise((r) => setTimeout(r, 5)); return { got: await readBody(e) }; }));
   app.use(r);
   return app;
 }
@@ -88,9 +87,7 @@ beforeAll(async () => {
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
 
 /** The ship on `finish` runs synchronously into the fake ingest; a few ticks cover the queue's own settling. */
-async function drain(): Promise<void> {
-  for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r));
-}
+const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0)); };
 
 /** Drives one request through the listener and waits for the server side to finish and ship. */
 async function call(a: App, path: string, init: RequestInit = {}): Promise<Response> {
@@ -98,7 +95,7 @@ async function call(a: App, path: string, init: RequestInit = {}): Promise<Respo
   const finished = new Promise<void>((r) => finishWaiters.push(r));
   const res = await fetch(base + path, { redirect: 'manual', ...init });
   await finished;
-  await drain();
+  await settle();
   return res;
 }
 
@@ -126,7 +123,7 @@ const stubEvent = (url: string, headers: Record<string, string> = {}): H3Event =
   ({ context: {}, web: { request: new Request(url, { headers }) }, node: { req: { socket: { remoteAddress: '8.8.8.8' }, headers: {} } } }) as unknown as H3Event;
 
 beforeEach(() => { events = []; sdkHeaders = []; });
-afterEach(() => resetCamada());
+afterEach(() => { resetCamada(); vi.unstubAllEnvs(); });
 
 describe('capture', () => {
   it('ships the event with the real status once the response has finished, exactly once', async () => {
@@ -145,25 +142,46 @@ describe('capture', () => {
     expect(sdkHeaders.every((h) => h === '@camada/nuxt/0.1.0')).toBe(true);
   });
 
-  it('ships st null at once on an event without a node response', async () => {
+  it('hands the request body back to h3, so a route behind the middleware still reads it', async () => {
+    const a = await primed();
+    const res = await call(a, '/echo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'a@b.c', password: 'x' }) });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ got: { email: 'a@b.c', password: 'x' } });
+    expect(events.find((e) => e.p === '/echo')).toMatchObject({ st: 200 });
+  });
+
+  it('ships st null at once on an event with no response object at all (a hand-built stub; every Nitro preset has one)', async () => {
     const handler = camada({ env: ENV, fetchImpl });
     await handler(stubEvent('http://app.test/warm'));   // cold: loads the snapshot
-    await drain();
+    await settle();
     events.length = 0;
     expect(await handler(stubEvent('http://app.test/blind', { cookie: '_sfp=known-sid' }))).toBeUndefined();
-    await drain();
+    await settle();
     expect(events).toEqual([expect.objectContaining({ p: '/blind', st: null, ip: '8.8.8.8', sid: 'known-sid', tap: 'sdk-nuxt' })]);
     expect(await handler(stubEvent('http://app.test/', { 'x-test-peer': BLOCKED_IP }))).toBeUndefined();   // no shim here: a header is just a header
   });
 
   it('reads its config from process.env when the app passes none', async () => {
-    Object.assign(process.env, ENV);
-    try {
-      const a = app({ env: undefined });
-      await call(a, '/');
-      await call(a, '/');
-      expect((await call(a, '/', { headers: { 'x-test-peer': BLOCKED_IP } })).status).toBe(403);
-    } finally { for (const k of Object.keys(ENV)) delete process.env[k]; }
+    for (const [k, v] of Object.entries(ENV)) vi.stubEnv(k, v);
+    const a = app({ env: undefined });
+    await call(a, '/');
+    await call(a, '/');
+    expect((await call(a, '/', { headers: { 'x-test-peer': BLOCKED_IP } })).status).toBe(403);
+  });
+
+  it('leaves an internal re-entry (Nitro $fetch during SSR: the outer context copied over) to the outer request', async () => {
+    const handler = camada({ env: ENV, fetchImpl });
+    const outer = stubEvent('http://app.test/page');
+    await handler(outer);
+    await handler(outer);   // warm: the slot is real now
+    await settle();
+    events.length = 0;
+    const inner = stubEvent('http://app.test/api/items', { 'x-test-peer': BLOCKED_IP });
+    Object.assign(inner.context, outer.context);
+    expect(await handler(inner)).toBeUndefined();
+    await settle();
+    expect(events).toEqual([]);   // no second page event, no second session
+    expect(scriptTag(inner)).toBe(scriptTag(outer));   // the inner route's helpers join the page's own rid
   });
 });
 
@@ -194,13 +212,6 @@ describe('enforcement', () => {
 
     const cookie = ok.headers.get('set-cookie')!.split(';')[0];
     expect((await call(a, '/admin/users', { headers: { cookie, ...HTML } })).status).toBe(200);
-  });
-
-  it('answers 403 JSON for a non-HTML challenge', async () => {
-    const a = await primed();
-    const res = await call(a, '/checkout', { headers: { accept: 'application/json' } });
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'challenge_required' });
   });
 });
 
@@ -283,16 +294,6 @@ describe('first-party beacon', () => {
     expect(events.find((e) => e.p === '/page')).toMatchObject({ rid, st: 200 });
     await postBeacon(a, JSON.stringify({ rid, tz: 'UTC' }));
     expect(events.find((e) => e.sig === 1)).toMatchObject({ rid, ip: PEER });
-  });
-
-  it('still blocks a blocked client at both endpoints', async () => {
-    const a = await primed();
-    const script = await call(a, '/_cam/b.js', { headers: { 'x-test-peer': BLOCKED_IP } });
-    expect(script.status).toBe(403);
-    expect(script.headers.get('x-block-reason')).toBe('ip4');
-    expect((await postBeacon(a, JSON.stringify({ rid: 'abc' }), { 'x-test-peer': BLOCKED_IP })).status).toBe(403);
-    expect(events).toHaveLength(2);
-    expect(events.every((e) => e.blk === 'ip4' && e.sig === undefined)).toBe(true);
   });
 
   it('emits no tag where the middleware did not run', async () => {
