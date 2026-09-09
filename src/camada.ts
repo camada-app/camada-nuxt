@@ -3,25 +3,21 @@
 // the Web Request, the socket peer, the process env, and when the response has settled.
 import { defineEventHandler, getRequestIP, setCookie, toWebRequest, type EventHandler, type H3Event } from 'h3';
 import { guarded, TAP_NUXT } from '@camada/core';
-import { createFetchCamada, SESSION_COOKIE, type FetchCamada, type FetchCamadaOptions, type FetchRequestContext, type FetchVars } from '@camada/core/fetch';
+import { createFetchCamada, SESSION_COOKIE, SESSION_MAX_AGE, track as coreTrack, scriptTag as coreScriptTag, type FetchCamada, type FetchCamadaOptions, type FetchRequestContext, type FetchVars } from '@camada/core/fetch';
 import iife from '@camada/browser/iife-string';
 import { SDK_ID } from './version.js';
 
 export type CamadaNuxtOptions = FetchCamadaOptions;
 export type CamadaNuxtVars = FetchVars;
 
-/** The `event.context` slot the middleware fills; `track()` and `scriptTag()` are the API, not the slot. */
-export const CONTEXT_KEY = 'camada';
-const SESSION_MAX_AGE = 2592000;
-
-interface Slot { cam: FetchCamada; vars: FetchVars }
+const VAR = '__camada';   // private: track() and scriptTag() are the API, not event.context
 
 // Every instance this module built, so a test or a hot reload can stop them all at once.
 const instances = new Set<FetchCamada>();
 
 /** Reads the slot without trusting the event shape: a stub or a foreign event must not throw. */
-const slotOf = (event: H3Event): Slot | undefined =>
-  guarded(() => (event.context?.[CONTEXT_KEY] as Slot | undefined) ?? undefined, undefined);
+const slotOf = (event: H3Event): FetchVars | undefined =>
+  guarded(() => event.context[VAR] as FetchVars | undefined, undefined);
 
 /**
  * The server middleware: `export default camada()` in `server/middleware/camada.ts`. Reads
@@ -30,22 +26,28 @@ const slotOf = (event: H3Event): Slot | undefined =>
  * endpoints) and falls through otherwise.
  */
 export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
-  const cam = createFetchCamada({ tap: TAP_NUXT, sdk: SDK_ID, iife }, { mode: 'lazy', ...opts });
+  const cam = createFetchCamada({ tap: TAP_NUXT, sdk: SDK_ID, iife }, opts);   // mode defaults to lazy in core: the middleware may run on an edge preset
   instances.add(cam);
   return defineEventHandler(async (event) => {
+    // Nitro's own `event.$fetch` / `useFetch` during SSR re-enters the h3 app with the outer
+    // event's context copied over: that request is the same page view, already captured.
+    if (slotOf(event)) return;
     const req = guarded(() => toWebRequest(event), null);
     if (!req) return;   // an event h3 cannot express as a Request is not ours to break
+    // Building the Request puts a Node request body into a web stream; hand that stream back to
+    // h3 so the app's readBody() reads the same bytes rather than an already-drained socket.
+    if (req.body) event._requestBody = req.body;
     const ctx: FetchRequestContext = {
       // The socket address (or what the host preset stamped as clientAddress); never
       // X-Forwarded-For here, core resolves that under the trusted-proxy rules.
       peer: guarded(() => getRequestIP(event) ?? null, null),
-      env: guarded(() => (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env, undefined),
+      env: globalThis.process?.env,
     };
     const r = await cam.before(req, ctx);
     if (!r) return;
     if (r.response) return r.response;
     const vars = r.vars;
-    event.context[CONTEXT_KEY] = { cam, vars } satisfies Slot;
+    event.context[VAR] = vars;
     const res = event.node?.res;
     // Set before the app runs so a handler's own redirect carries the session too; core only
     // hands a cookie for a new session, so an existing `_sfp` is never overwritten. h3 1.x
@@ -56,8 +58,8 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
         path: '/', maxAge: SESSION_MAX_AGE, httpOnly: true, sameSite: 'lax', secure: new URL(req.url).protocol === 'https:',
       }), undefined);
     }
-    // Node presets expose the response: ship with the real status once it has settled. Edge
-    // presets have no node.res, so the event goes now with st null rather than never.
+    // Ship with the real status once the response has settled — a Node response, or the mock a
+    // web preset provides. An event with no response object at all ships now, with st null.
     if (typeof res?.once === 'function') res.once('finish', () => cam.after(req, vars, res.statusCode));
     else cam.after(req, vars, null);
   });
@@ -70,16 +72,10 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
  * through its rid and session; the user identifier is HMAC-hashed in-process. Never throws, and
  * a silent no-op where the middleware did not run.
  */
-export function track(event: H3Event, et: string, data?: { user?: string }): Promise<void> {
-  const s = slotOf(event);
-  return s ? s.cam.track(s.vars, et, data) : Promise.resolve();
-}
+export const track = (event: H3Event, et: string, data?: { user?: string }): Promise<void> => coreTrack(slotOf(event), et, data);
 
 /** The `<script>` tag for an HTML response — `''` where the middleware did not run or the tenant turned the beacon off. */
-export function scriptTag(event: H3Event): string {
-  const s = slotOf(event);
-  return s ? s.cam.scriptTag(s.vars) : '';
-}
+export const scriptTag = (event: H3Event): string => coreScriptTag(slotOf(event));
 
 /** Test/reset hook: stops and drops every engine behind every `camada()` this module created. */
 export function resetCamada(): void {

@@ -57,9 +57,12 @@ so an unprovisioned environment behaves exactly as if camada were not installed.
 5. **Challenge** → a `403` proof-of-work page for HTML navigations, `403 {"error":
    "challenge_required"}` for anything else; the solution posts to `/__camada/challenge`,
    which sets `_cch` and 302s back.
-6. Otherwise the request falls through to your routes and pages. On a Node preset the event
-   ships when the response's `finish` fires, with the real `statusCode`; on a preset without a
-   node response it ships as the request goes by, with `st: null`.
+6. Otherwise the request falls through to your routes and pages. The event ships on the
+   response's `finish` with the real `statusCode` — a Node response, or the mock a web preset
+   provides; `st` is null only for an event without a response object at all. Your own
+   `readBody()` still sees the request body (the middleware hands h3 the stream it built), and
+   Nitro's internal `$fetch` / `useFetch` during SSR is left to the outer request: one page view
+   is one event.
 
 A first visit is given the shared `_sfp` session cookie through h3's `setCookie` before your
 handler runs (`HttpOnly; SameSite=Lax; Path=/; Max-Age=30d`, `Secure` when the request URL is
@@ -79,7 +82,7 @@ overwritten.
 | `snapshotVersion` | `5` | `4` drops the custom rules, `3` the allow/challenge sides too |
 | `scriptPath` | `/_cam/b.js` | where the first-party beacon script is served |
 | `fpPath` | `/_cam/fp` | where that script posts the beacon; keep it in `scriptPath`'s directory |
-| `mode` | `lazy` | `timer` polls the snapshot on an unref'd interval (long-lived Node server); `CAMADA_SERVERLESS=1` forces `lazy` |
+| `mode` | `lazy` (or `timer`) | `timer` polls the snapshot on an unref'd interval (long-lived process); `lazy` refreshes it per request off-path. `CAMADA_SERVERLESS=1` forces `lazy` |
 | `env` | `process.env` | overrides the process env (tests, and apps that read config themselves) |
 
 `CAMADA_CHALLENGE=0` switches the challenge off without a code change.
