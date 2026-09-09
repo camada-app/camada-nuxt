@@ -15,9 +15,17 @@ const VAR = '__camada';   // private: track() and scriptTag() are the API, not e
 // Every instance this module built, so a test or a hot reload can stop them all at once.
 const instances = new Set<FetchCamada>();
 
-/** Reads the slot without trusting the event shape: a stub or a foreign event must not throw. */
+/** Reads the slot without trusting the event shape: a stub or a foreign event must not throw.
+ *  An inner event Nitro made for `event.$fetch` / SSR `useFetch` carries the outer event's context
+ *  on its mock request (`req.__unenv__`; Nitro copies only `_platform` and `waitUntil` into the
+ *  inner context), so the outer request's vars are found there — the page's own rid and session. */
 const slotOf = (event: H3Event): FetchVars | undefined =>
-  guarded(() => event.context[VAR] as FetchVars | undefined, undefined);
+  guarded(() => {
+    const own = event.context[VAR] as FetchVars | undefined;
+    if (own) return own;
+    const outer = (event.node?.req as { __unenv__?: Record<string, unknown> } | undefined)?.__unenv__;
+    return outer?.[VAR] as FetchVars | undefined;
+  }, undefined);
 
 /**
  * The server middleware: `export default camada()` in `server/middleware/camada.ts`. Reads
@@ -29,8 +37,8 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
   const cam = createFetchCamada({ tap: TAP_NUXT, sdk: SDK_ID, iife }, opts);   // mode defaults to lazy in core: the middleware may run on an edge preset
   instances.add(cam);
   return defineEventHandler(async (event) => {
-    // Nitro's own `event.$fetch` / `useFetch` during SSR re-enters the h3 app with the outer
-    // event's context copied over: that request is the same page view, already captured.
+    // Nitro's own `event.$fetch` / SSR `useFetch` re-enters the h3 app for the same page view,
+    // already captured on the outer request (a bare `$fetch` with no event is a request of its own).
     if (slotOf(event)) return;
     const req = guarded(() => toWebRequest(event), null);
     if (!req) return;   // an event h3 cannot express as a Request is not ours to break

@@ -169,19 +169,26 @@ describe('capture', () => {
     expect((await call(a, '/', { headers: { 'x-test-peer': BLOCKED_IP } })).status).toBe(403);
   });
 
-  it('leaves an internal re-entry (Nitro $fetch during SSR: the outer context copied over) to the outer request', async () => {
+  it('leaves an internal re-entry (Nitro event.$fetch / SSR useFetch) to the outer request', async () => {
     const handler = camada({ env: ENV, fetchImpl });
     const outer = stubEvent('http://app.test/page');
     await handler(outer);
     await handler(outer);   // warm: the slot is real now
     await settle();
     events.length = 0;
+    // Nitro stamps the outer context on the inner mock request and copies only _platform/waitUntil into the inner context.
     const inner = stubEvent('http://app.test/api/items', { 'x-test-peer': BLOCKED_IP });
-    Object.assign(inner.context, outer.context);
+    (inner.node.req as { __unenv__?: unknown }).__unenv__ = outer.context;
     expect(await handler(inner)).toBeUndefined();
     await settle();
     expect(events).toEqual([]);   // no second page event, no second session
     expect(scriptTag(inner)).toBe(scriptTag(outer));   // the inner route's helpers join the page's own rid
+    // A platform context alone (Cloudflare presets deliver the outer request through the same mock) is a request of its own.
+    const edge = stubEvent('http://app.test/edge');
+    (edge.node.req as { __unenv__?: unknown }).__unenv__ = { _platform: {}, waitUntil: () => {} };
+    await handler(edge);
+    await settle();
+    expect(events.at(-1)).toMatchObject({ p: '/edge' });
   });
 });
 
