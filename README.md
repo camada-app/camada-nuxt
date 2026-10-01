@@ -59,7 +59,9 @@ so an unprovisioned environment behaves exactly as if camada were not installed.
    which sets `_cch` and 302s back.
 6. Otherwise the request falls through to your routes and pages. The event ships on the
    response's `finish` with the real `statusCode` — a Node response, or the mock a web preset
-   provides; `st` is null only for an event without a response object at all. Your own
+   provides; `st` is null only for an event without a response object at all. A client that
+   disconnects mid-response (an aborted SSE) still ships its one event, with the status set so
+   far and `dur` up to the disconnect. Your own
    `readBody()` still sees the request body (the middleware hands h3 the stream it built), and
    Nitro's internal `event.$fetch` / `useFetch` during SSR is left to the outer request (found on the
    inner request's `__unenv__` context; a bare `$fetch` with no event is a request of its own): one page view

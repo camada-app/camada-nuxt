@@ -58,6 +58,14 @@ function routes(mount: (app: App) => void): App {
   r.get('/checkout', eventHandler(() => '<p>checkout</p>'));
   r.get('/admin/users', eventHandler(() => '<p>admin</p>'));
   r.get('/page', eventHandler((e) => `<html><head>${scriptTag(e)}</head><body>page</body></html>`));
+  r.get('/sse', eventHandler(() => {   // 8 chunks 50 ms apart: ~400 ms read to the end
+    let n = 0;
+    let t: ReturnType<typeof setInterval>;
+    return new ReadableStream({
+      start(c) { t = setInterval(() => { c.enqueue(new TextEncoder().encode(`data: ${n}\n\n`)); if (++n === 8) { clearInterval(t); c.close(); } }, 50); },
+      cancel() { clearInterval(t); },
+    });
+  }));
   r.get('/redirect', eventHandler((e) => sendRedirect(e, '/', 302)));
   r.get('/raw-redirect', eventHandler(() => Response.redirect('http://app.test/', 302)));   // immutable headers, sent by h3 as-is
   r.post('/login', eventHandler(async (e) => { await track(e, 'login_failed', { user: 'alice@example.com' }); setResponseStatus(e, 401); return 'no'; }));
@@ -133,6 +141,27 @@ describe('capture', () => {
     expect(events[0]).toMatchObject({ tap: 'sdk-nuxt', p: '/', st: 200, ip: PEER });
     expect((await call(a, '/nope')).status).toBe(404);
     expect(events.filter((e) => e.p === '/nope')).toEqual([expect.objectContaining({ st: 404 })]);
+  });
+
+  it('ships one event when the client aborts mid-stream, timed to the abort; one when it reads to the end', async () => {
+    const a = await primed();
+    current = a;
+    const ac = new AbortController();
+    const res = await fetch(base + '/sse', { signal: ac.signal });
+    await res.body!.getReader().read();
+    await new Promise((r) => setTimeout(r, 120));
+    ac.abort();
+    await new Promise((r) => setTimeout(r, 100));
+    const aborted = events.filter((e) => e.p === '/sse');
+    expect(aborted).toEqual([expect.objectContaining({ st: 200 })]);
+    expect(aborted[0].dur as number).toBeGreaterThanOrEqual(100);
+    expect(aborted[0].dur as number).toBeLessThan(350);   // the abort, not the 400 ms stream
+    events.length = 0;
+    await (await call(a, '/sse')).text();
+    await new Promise((r) => setTimeout(r, 50));
+    const whole = events.filter((e) => e.p === '/sse');
+    expect(whole).toHaveLength(1);
+    expect(whole[0].dur as number).toBeGreaterThanOrEqual(350);
   });
 
   it('reports its identity on every batch', async () => {
