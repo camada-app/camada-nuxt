@@ -139,7 +139,7 @@ describe('capture', () => {
     const a = await primed();
     await call(a, '/');
     expect(sdkHeaders.length).toBeGreaterThan(0);
-    expect(sdkHeaders.every((h) => h === '@camada/nuxt/0.1.0')).toBe(true);
+    expect(sdkHeaders.every((h) => h === '@camada/nuxt/0.1.1')).toBe(true);
   });
 
   it('hands the request body back to h3, so a route behind the middleware still reads it', async () => {
