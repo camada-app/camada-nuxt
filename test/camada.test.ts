@@ -139,7 +139,7 @@ describe('capture', () => {
     const a = await primed();
     await call(a, '/');
     expect(sdkHeaders.length).toBeGreaterThan(0);
-    expect(sdkHeaders.every((h) => h === '@camada/nuxt/0.1.1')).toBe(true);
+    expect(sdkHeaders.every((h) => h === '@camada/nuxt/0.1.2')).toBe(true);
   });
 
   it('hands the request body back to h3, so a route behind the middleware still reads it', async () => {
@@ -150,14 +150,14 @@ describe('capture', () => {
     expect(events.find((e) => e.p === '/echo')).toMatchObject({ st: 200 });
   });
 
-  it('ships st null at once on an event with no response object at all (a hand-built stub; every Nitro preset has one)', async () => {
+  it('ships st and dur null at once on an event with no response object at all (a hand-built stub; every Nitro preset has one)', async () => {
     const handler = camada({ env: ENV, fetchImpl });
     await handler(stubEvent('http://app.test/warm'));   // cold: loads the snapshot
     await settle();
     events.length = 0;
     expect(await handler(stubEvent('http://app.test/blind', { cookie: '_sfp=known-sid' }))).toBeUndefined();
     await settle();
-    expect(events).toEqual([expect.objectContaining({ p: '/blind', st: null, ip: '8.8.8.8', sid: 'known-sid', tap: 'sdk-nuxt' })]);
+    expect(events).toEqual([expect.objectContaining({ p: '/blind', st: null, dur: null, ip: '8.8.8.8', sid: 'known-sid', tap: 'sdk-nuxt' })]);
     expect(await handler(stubEvent('http://app.test/', { 'x-test-peer': BLOCKED_IP }))).toBeUndefined();   // no shim here: a header is just a header
   });
 
