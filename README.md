@@ -6,7 +6,9 @@ challenge page and beacon, records the outcomes your server routes know (`track(
 one wire event per request with the status your app really answered. Fails open by design — a
 camada outage or bug never 5xxes your app.
 
-Not yet on npm — consumed via a `file:` dependency from a sibling checkout.
+```sh
+npm install @camada/nuxt
+```
 
 ## Quickstart
 
