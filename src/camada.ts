@@ -67,7 +67,8 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
       }), undefined);
     }
     // Ship with the real status once the response has settled — a Node response, or the mock a
-    // web preset provides. An event with no response object at all ships now, with st null.
+    // web preset provides. An event with no response object at all ships now, with st and dur null:
+    // nothing here can see when its response settles, and a dur taken now would be ~0.
     if (typeof res?.once === 'function') res.once('finish', () => cam.after(req, vars, res.statusCode));
     else cam.after(req, vars, null);
   });
