@@ -67,10 +67,17 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
       }), undefined);
     }
     // Ship with the real status once the response has settled — a Node response, or the mock a
-    // web preset provides. An event with no response object at all ships now, with st and dur null:
-    // nothing here can see when its response settles, and a dur taken now would be ~0.
-    if (typeof res?.once === 'function') res.once('finish', () => cam.after(req, vars, res.statusCode));
-    else cam.after(req, vars, null);
+    // web preset provides. 'close' alone means the client left mid-response (an aborted SSE):
+    // the status set so far and dur up to the abort, the fetch adapters' cancel semantics; it
+    // also follows every 'finish', so a guard keeps it to one event. An event with no response
+    // object at all ships now, with st and dur null: nothing here can see when its response
+    // settles, and a dur taken now would be ~0.
+    if (typeof res?.once === 'function') {
+      let shipped = false;
+      const ship = () => { if (!shipped) { shipped = true; cam.after(req, vars, res.statusCode); } };
+      res.once('finish', ship);
+      res.once('close', ship);
+    } else cam.after(req, vars, null);
   });
 }
 
