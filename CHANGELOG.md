@@ -13,5 +13,7 @@ Needs `@camada/core` 0.5.0.
 
 ### Fixed
 
+- Path rules match the canonical path (through `@camada/core` 0.5.0). A percent-encoded,
+  upper-cased or trailing-slash spelling of a blocked path used to slip past the block.
 - A request whose client disconnects mid-response (an aborted SSE stream) ships its event, with
   the status set so far and `dur` up to the disconnect. It used to leave no row.
