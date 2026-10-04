@@ -1,7 +1,7 @@
 // @camada/nuxt — the h3 binding over @camada/core/fetch. The pipeline (verdict, block,
 // challenge, beacon endpoints, the wire event) lives in core; this file only says what h3 knows:
 // the Web Request, the socket peer, the process env, and when the response has settled.
-import { defineEventHandler, getRequestIP, setCookie, toWebRequest, type EventHandler, type H3Event } from 'h3';
+import { defineEventHandler, getRequestIP, setCookie, setResponseHeader, toWebRequest, type EventHandler, type H3Event } from 'h3';
 import { guarded, TAP_NUXT } from '@camada/core';
 import { createFetchCamada, SESSION_COOKIE, SESSION_MAX_AGE, track as coreTrack, scriptTag as coreScriptTag, type FetchCamada, type FetchCamadaOptions, type FetchRequestContext, type FetchVars } from '@camada/core/fetch';
 import iife from '@camada/browser/iife-string';
@@ -66,6 +66,9 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
         path: '/', maxAge: SESSION_MAX_AGE, httpOnly: true, sameSite: 'lax', secure: new URL(req.url).protocol === 'https:',
       }), undefined);
     }
+    // x-rid, set up front like the cookie: h3 keeps node.res headers through the app's answer,
+    // a returned web Response included. Camada's own answers returned above never get it.
+    if (res) guarded(() => setResponseHeader(event, 'x-rid', vars.rid), undefined);
     // Ship with the real status once the response has settled — a Node response, or the mock a
     // web preset provides. 'close' alone means the client left mid-response (an aborted SSE):
     // the status set so far and dur up to the abort, the fetch adapters' cancel semantics; it
