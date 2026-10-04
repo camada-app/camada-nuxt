@@ -4,6 +4,11 @@
 
 Needs `@camada/core` 0.5.0.
 
+### Added
+
+- `x-rid` response header: the rid of the request's event row, on every response the app answers
+  (with a Node response). Not on camada's own answers.
+
 ### Changed
 
 - `ts` is the request start, so `[ts, ts + dur]` is when the request ran.
