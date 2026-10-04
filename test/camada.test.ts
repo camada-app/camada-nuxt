@@ -134,6 +134,17 @@ beforeEach(() => { events = []; sdkHeaders = []; });
 afterEach(() => { resetCamada(); vi.unstubAllEnvs(); });
 
 describe('capture', () => {
+  it('sets x-rid to the event rid on answered responses (a web Response included) and not on a block', async () => {
+    const a = await primed();
+    for (const path of ['/', '/redirect', '/raw-redirect', '/sse']) {
+      const res = await call(a, path);
+      expect(res.headers.get('x-rid'), path).toBe(events.find((e) => e.p === path)!.rid);
+    }
+    const blocked = await call(a, '/', { headers: { 'x-test-peer': BLOCKED_IP } });
+    expect(blocked.status).toBe(403);
+    expect(blocked.headers.has('x-rid')).toBe(false);
+  });
+
   it('ships the event with the real status once the response has finished, exactly once', async () => {
     const a = await primed();
     expect((await call(a, '/')).status).toBe(200);
