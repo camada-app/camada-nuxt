@@ -53,7 +53,19 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
     };
     const r = await cam.before(req, ctx);
     if (!r) return;
-    if (r.response) return r.response;
+    if (r.response) {
+      // h3 keeps headers an earlier middleware put on node.res and lays the Response's over them: the
+      // challenge page's own CSP replaces an app policy, but an app's Report-Only policy would still ride
+      // along and report the solver as a violation. Drop both first (camada-all-mwpo).
+      const out = r.response;
+      if (out.headers.has('content-security-policy')) {
+        guarded(() => {
+          event.node?.res?.removeHeader('content-security-policy');
+          event.node?.res?.removeHeader('content-security-policy-report-only');
+        }, undefined);
+      }
+      return out;
+    }
     const vars = r.vars;
     event.context[VAR] = vars;
     const res = event.node?.res;

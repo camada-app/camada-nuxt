@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- The challenge page carries core's own `Content-Security-Policy` (only its inline solver and
+  style, by hash), and a `Content-Security-Policy(-Report-Only)` an earlier middleware set on
+  `node.res` is removed from that response, so it neither replaces nor reports on the page's
+  policy. (camada-all-mwpo)
+
 ### Changed
 
 - The `exports` map now gives `require` its own `.d.cts` declarations (`import` and `require` each carry a `types` condition), so a CommonJS TypeScript app on `moduleResolution: node16` compiles; CI runs `@arethetypeswrong/cli`. (camada-all-vuzm)
