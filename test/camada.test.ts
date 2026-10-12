@@ -242,6 +242,27 @@ describe('enforcement', () => {
     expect(events).toEqual([expect.objectContaining({ st: 403, blk: 'ip4', ip: BLOCKED_IP })]);
   });
 
+  it('sends the challenge page with its own CSP (core\'s, hashes match the inline script and style), not the app\'s (camada-all-mwpo)', async () => {
+    const sha = (t: string) => `'sha256-${createHash('sha256').update(t, 'utf8').digest('base64')}'`;
+    const a = routes((x) => {
+      x.use(eventHandler((e) => {   // an app middleware in front of camada that sets a strict policy (nuxt-security style)
+        e.node.res.setHeader('content-security-policy', "default-src 'self'");
+        e.node.res.setHeader('content-security-policy-report-only', "script-src 'none'");
+      }));
+      x.use(camada({ env: ENV, fetchImpl }));
+    });
+    await call(a, '/');
+    await call(a, '/');
+    const page = await call(a, '/admin/users', { headers: HTML });
+    expect(page.status).toBe(403);
+    const html = await page.text();
+    expect(page.headers.get('content-security-policy')).toBe(
+      `default-src 'none'; script-src ${sha(/<script>([\s\S]*?)<\/script>/.exec(html)![1])}; ` +
+      `style-src ${sha(/<style>([\s\S]*?)<\/style>/.exec(html)![1])}; base-uri 'none'; frame-ancestors 'self'`);
+    expect(page.headers.get('content-security-policy-report-only')).toBeNull();
+    expect((await call(a, '/', { headers: HTML })).headers.get('content-security-policy')).toBe("default-src 'self'");   // the app's pages keep it
+  });
+
   it('serves the challenge page, verifies the solution, and lets the cookie holder through', async () => {
     const a = await primed();
     const page = await call(a, '/admin/users', { headers: HTML });
