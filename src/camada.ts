@@ -29,10 +29,12 @@ const slotOf = (event: H3Event): FetchVars | undefined =>
   }, undefined);
 
 /** Marks a signalled response: `x-camada-challenge: 1` and `cache-control: no-store`. The header is
- *  per client, so no shared cache may keep the copy, whatever the app sets later. Every flush goes
- *  through `res.writeHead`, so that is the one choke point: it drops any cache-control from the
- *  headers it is given (object, flat array, tuple array) and re-sets no-store with the original
- *  setHeader (camada-all-60f8). */
+ *  per client, so no shared cache may keep the copy, whatever the app sets later. Two choke points:
+ *  `res.setHeader` ignores cache-control (setHeaders, h3's setResponseHeader and sendWebResponse all
+ *  land there, and it is the only one node-mock-http's response uses under web/edge presets, whose
+ *  end() never calls writeHead); `res.writeHead` drops any cache-control from the headers it is
+ *  given (object, flat array, tuple array) and re-sets no-store, on real Node where those bypass
+ *  setHeader. Both use the original setHeader for no-store (camada-all-60f8). */
 function signal(res: ServerResponse): void {
   const set = res.setHeader, writeHead = res.writeHead;
   const isCc = (n: unknown) => typeof n === 'string' && n.toLowerCase() === 'cache-control';
@@ -46,12 +48,15 @@ function signal(res: ServerResponse): void {
     if (h && typeof h === 'object') return Object.fromEntries(Object.entries(h).filter(([k]) => !isCc(k)));
     return h;
   };
+  res.setHeader = function (this: ServerResponse, name: string, value: unknown) {
+    return isCc(name) ? this : (set as (...a: unknown[]) => ServerResponse).call(this, name, value);
+  } as ServerResponse['setHeader'];
   res.writeHead = function (this: ServerResponse, status: number, ...rest: unknown[]) {
     if (!this.headersSent) set.call(this, 'cache-control', 'no-store');
     return (writeHead as (...a: unknown[]) => ServerResponse).call(this, status, ...rest.map(strip));
   } as ServerResponse['writeHead'];
   res.setHeader('x-camada-challenge', '1');
-  res.setHeader('cache-control', 'no-store');
+  set.call(res, 'cache-control', 'no-store');
 }
 
 /**
