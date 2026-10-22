@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { createApp, createRouter, eventHandler, readBody, sendRedirect, setResponseStatus, toNodeListener, type App, type H3Event } from 'h3';
+import { createApp, createRouter, eventHandler, toWebHandler, readBody, sendRedirect, setResponseHeader, setResponseStatus, toNodeListener, type App, type H3Event } from 'h3';
 import { CHALLENGE_COOKIE } from '@camada/core';
 import iife from '@camada/browser/iife-string';
 import { camada, camadaNitroPlugin, resetCamada, track, scriptTag, type CamadaNuxtOptions } from '../src/index.js';
@@ -58,6 +58,8 @@ function routes(mount: (app: App) => void): App {
   r.get('/checkout', eventHandler(() => '<p>checkout</p>'));
   r.get('/admin/users', eventHandler(() => '<p>admin</p>'));
   r.get('/admin/data', eventHandler((e) => { e.node.res.setHeader('cache-control', 'public, max-age=60'); return { ok: 1 }; }));
+  r.get('/admin/web', eventHandler(() => new Response('{"ok":1}', { headers: { 'cache-control': 'public, max-age=60' } })));
+  r.get('/admin/set', eventHandler((e) => { setResponseHeader(e, 'cache-control', 'public, max-age=60'); return { ok: 1 }; }));
   r.get('/page', eventHandler((e) => `<html><head>${scriptTag(e)}</head><body>page</body></html>`));
   r.get('/sse', eventHandler(() => {   // 8 chunks 50 ms apart: ~400 ms read to the end
     let n = 0;
@@ -297,6 +299,30 @@ describe('a challenge verdict on a non-HTML request (camada-all-60f8)', () => {
     expect(res.headers.get('x-camada-challenge')).toBe('1');
     expect(res.headers.get('cache-control')).toBe('no-store');   // not the app's public, max-age=60
     expect(events).toEqual([expect.objectContaining({ st: 200, chs: 1 })]);
+  });
+
+  it('keeps no-store when the app returns a web Response with its own cache-control', async () => {
+    const a = await primed();
+    await call(a, '/admin/users', { headers: HTML });
+    const res = await call(a, '/admin/web', { headers: JSON_REQ });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-camada-challenge')).toBe('1');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('keeps no-store through toWebHandler, where node-mock-http builds the response from setHeader (never writeHead)', async () => {
+    const a = app();
+    const web = toWebHandler(a);
+    const get = (path: string, headers: Record<string, string>) =>
+      web(new Request('http://app.test' + path, { headers: { 'x-test-peer': PEER, ...headers } }));
+    await get('/', {}); await settle(); await get('/', {}); await settle();
+    expect((await get('/admin/users', HTML)).status).toBe(403);
+    for (const path of ['/admin/data', '/admin/set', '/admin/web']) {
+      const res = await get(path, JSON_REQ);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('x-camada-challenge'), path).toBe('1');
+      expect(res.headers.get('cache-control'), path).toBe('no-store');
+    }
   });
 
   it('leaves an unchallenged request unmarked', async () => {
