@@ -28,7 +28,11 @@ const slotOf = (event: H3Event): FetchVars | undefined =>
     return outer?.[VAR] as FetchVars | undefined;
   }, undefined);
 
-/** Marks a signalled response: `x-camada-challenge: 1` and `cache-control: no-store`. The header is
+// CDNs read their own cache header ahead of cache-control, so all of these end up no-store.
+const NO_STORE_HEADERS = ['cache-control', 'cdn-cache-control', 'surrogate-control', 'cloudflare-cdn-cache-control', 'vercel-cdn-cache-control', 'netlify-cdn-cache-control'];
+
+/** Marks a signalled response: `x-camada-challenge: 1` and `cache-control: no-store` (plus the CDN-specific
+ *  equivalents in NO_STORE_HEADERS). The header is
  *  per client, so no shared cache may keep the copy, whatever the app sets later. Two choke points:
  *  `res.setHeader` ignores cache-control (setHeaders, h3's setResponseHeader and sendWebResponse all
  *  land there, and it is the only one node-mock-http's response uses under web/edge presets, whose
@@ -37,7 +41,7 @@ const slotOf = (event: H3Event): FetchVars | undefined =>
  *  setHeader. Both use the original setHeader for no-store (camada-all-60f8). */
 function signal(res: ServerResponse): void {
   const set = res.setHeader, writeHead = res.writeHead;
-  const isCc = (n: unknown) => typeof n === 'string' && n.toLowerCase() === 'cache-control';
+  const isCc = (n: unknown) => typeof n === 'string' && NO_STORE_HEADERS.includes(n.toLowerCase());
   const strip = (h: unknown): unknown => {
     if (Array.isArray(h)) {
       if (h.length && Array.isArray(h[0])) return h.filter((p) => !isCc(p[0]));
@@ -52,11 +56,11 @@ function signal(res: ServerResponse): void {
     return isCc(name) ? this : (set as (...a: unknown[]) => ServerResponse).call(this, name, value);
   } as ServerResponse['setHeader'];
   res.writeHead = function (this: ServerResponse, status: number, ...rest: unknown[]) {
-    if (!this.headersSent) set.call(this, 'cache-control', 'no-store');
+    if (!this.headersSent) for (const h of NO_STORE_HEADERS) set.call(this, h, 'no-store');
     return (writeHead as (...a: unknown[]) => ServerResponse).call(this, status, ...rest.map(strip));
   } as ServerResponse['writeHead'];
   res.setHeader('x-camada-challenge', '1');
-  set.call(res, 'cache-control', 'no-store');
+  for (const h of NO_STORE_HEADERS) set.call(res, h, 'no-store');
 }
 
 /**
