@@ -58,6 +58,9 @@ function routes(mount: (app: App) => void): App {
   r.get('/checkout', eventHandler(() => '<p>checkout</p>'));
   r.get('/admin/users', eventHandler(() => '<p>admin</p>'));
   r.get('/admin/data', eventHandler((e) => { e.node.res.setHeader('cache-control', 'public, max-age=60'); return { ok: 1 }; }));
+  r.get('/admin/cdn', eventHandler((e) => { e.node.res.setHeader('cdn-cache-control', 'public, max-age=60'); e.node.res.setHeader('Surrogate-Control', 'max-age=60'); return { ok: 1 }; }));
+  r.get('/open/cdn', eventHandler((e) => { e.node.res.setHeader('cdn-cache-control', 'public, max-age=60'); return { ok: 1 }; }));
+  r.get('/admin/cdnhead', eventHandler((e) => { e.node.res.writeHead(200, { 'CDN-Cache-Control': 'public, max-age=60', 'surrogate-control': 'max-age=60' }); e.node.res.end('{"ok":1}'); }));
   r.get('/admin/web', eventHandler(() => new Response('{"ok":1}', { headers: { 'cache-control': 'public, max-age=60' } })));
   r.get('/admin/set', eventHandler((e) => { setResponseHeader(e, 'cache-control', 'public, max-age=60'); return { ok: 1 }; }));
   r.get('/page', eventHandler((e) => `<html><head>${scriptTag(e)}</head><body>page</body></html>`));
@@ -288,6 +291,7 @@ describe('enforcement', () => {
 
 describe('a challenge verdict on a non-HTML request (camada-all-60f8)', () => {
   const JSON_REQ = { accept: 'application/json' };
+  const NO_STORE = ['cache-control', 'cdn-cache-control', 'surrogate-control', 'cloudflare-cdn-cache-control', 'vercel-cdn-cache-control', 'netlify-cdn-cache-control'];
 
   it('passes it to the app marked x-camada-challenge and no-store, and ships chs: 1', async () => {
     const a = await primed();
@@ -325,11 +329,35 @@ describe('a challenge verdict on a non-HTML request (camada-all-60f8)', () => {
     }
   });
 
+  it('ends every CDN-specific cache header no-store too, whichever way the app sets them', async () => {
+    const a = await primed();
+    await call(a, '/admin/users', { headers: HTML });
+    for (const path of ['/admin/cdn', '/admin/cdnhead']) {
+      const res = await call(a, path, { headers: JSON_REQ });
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('x-camada-challenge'), path).toBe('1');
+      for (const h of NO_STORE) expect(res.headers.get(h), `${path} ${h}`).toBe('no-store');
+    }
+  });
+
+  it('keeps the CDN-specific no-store through toWebHandler (setHeader only)', async () => {
+    const a = app();
+    const web = toWebHandler(a);
+    const get = (path: string, headers: Record<string, string>) =>
+      web(new Request('http://app.test' + path, { headers: { 'x-test-peer': PEER, ...headers } }));
+    await get('/', {}); await settle(); await get('/', {}); await settle();
+    expect((await get('/admin/users', HTML)).status).toBe(403);
+    const res = await get('/admin/cdn', JSON_REQ);
+    expect(res.headers.get('x-camada-challenge')).toBe('1');
+    for (const h of NO_STORE) expect(res.headers.get(h), h).toBe('no-store');
+  });
+
   it('leaves an unchallenged request unmarked', async () => {
     const a = await primed();
     const res = await call(a, '/', { headers: JSON_REQ });
     expect(res.status).toBe(200);
     expect(res.headers.get('x-camada-challenge')).toBeNull();
+    expect((await call(a, '/open/cdn', { headers: JSON_REQ })).headers.get('cdn-cache-control')).toBe('public, max-age=60');
   });
 });
 
