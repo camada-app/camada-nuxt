@@ -6,7 +6,7 @@
 
 - A non-HTML request under a challenge verdict (an API call, `fetch()`, Nuxt's `_payload.json`) now
   passes to your app instead of getting `403 {"error":"challenge_required"}`. The response carries
-  `x-camada-challenge: 1` and `cache-control: no-store` (the app cannot override it) and the event
+  `x-camada-challenge: 1` and `cache-control: no-store` (the app cannot override it, on Node or under web/edge presets) and the event
   carries `chs: 1`, so your frontend can choose to challenge. HTML navigations still get the
   proof-of-work page. (camada-all-60f8)
 
