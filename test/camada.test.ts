@@ -57,6 +57,7 @@ function routes(mount: (app: App) => void): App {
   r.get('/cart', eventHandler(() => '<p>cart</p>'));
   r.get('/checkout', eventHandler(() => '<p>checkout</p>'));
   r.get('/admin/users', eventHandler(() => '<p>admin</p>'));
+  r.get('/admin/data', eventHandler((e) => { e.node.res.setHeader('cache-control', 'public, max-age=60'); return { ok: 1 }; }));
   r.get('/page', eventHandler((e) => `<html><head>${scriptTag(e)}</head><body>page</body></html>`));
   r.get('/sse', eventHandler(() => {   // 8 chunks 50 ms apart: ~400 ms read to the end
     let n = 0;
@@ -280,6 +281,29 @@ describe('enforcement', () => {
 
     const cookie = ok.headers.get('set-cookie')!.split(';')[0];
     expect((await call(a, '/admin/users', { headers: { cookie, ...HTML } })).status).toBe(200);
+  });
+});
+
+describe('a challenge verdict on a non-HTML request (camada-all-60f8)', () => {
+  const JSON_REQ = { accept: 'application/json' };
+
+  it('passes it to the app marked x-camada-challenge and no-store, and ships chs: 1', async () => {
+    const a = await primed();
+    expect((await call(a, '/admin/users', { headers: HTML })).status).toBe(403);   // the same peer, as a navigation: the page
+    events.length = 0;
+    const res = await call(a, '/admin/data', { headers: JSON_REQ });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: 1 });
+    expect(res.headers.get('x-camada-challenge')).toBe('1');
+    expect(res.headers.get('cache-control')).toBe('no-store');   // not the app's public, max-age=60
+    expect(events).toEqual([expect.objectContaining({ st: 200, chs: 1 })]);
+  });
+
+  it('leaves an unchallenged request unmarked', async () => {
+    const a = await primed();
+    const res = await call(a, '/', { headers: JSON_REQ });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-camada-challenge')).toBeNull();
   });
 });
 

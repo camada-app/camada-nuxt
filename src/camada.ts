@@ -1,6 +1,7 @@
 // @camada/nuxt — the h3 binding over @camada/core/fetch. The pipeline (verdict, block,
 // challenge, beacon endpoints, the wire event) lives in core; this file only says what h3 knows:
 // the Web Request, the socket peer, the process env, and when the response has settled.
+import type { ServerResponse } from 'node:http';
 import { defineEventHandler, getRequestIP, setCookie, setResponseHeader, toWebRequest, type EventHandler, type H3Event } from 'h3';
 import { guarded, TAP_NUXT } from '@camada/core';
 import { createFetchCamada, SESSION_COOKIE, SESSION_MAX_AGE, track as coreTrack, scriptTag as coreScriptTag, type FetchCamada, type FetchCamadaOptions, type FetchRequestContext, type FetchVars } from '@camada/core/fetch';
@@ -26,6 +27,32 @@ const slotOf = (event: H3Event): FetchVars | undefined =>
     const outer = (event.node?.req as { __unenv__?: Record<string, unknown> } | undefined)?.__unenv__;
     return outer?.[VAR] as FetchVars | undefined;
   }, undefined);
+
+/** Marks a signalled response: `x-camada-challenge: 1` and `cache-control: no-store`. The header is
+ *  per client, so no shared cache may keep the copy, whatever the app sets later. Every flush goes
+ *  through `res.writeHead`, so that is the one choke point: it drops any cache-control from the
+ *  headers it is given (object, flat array, tuple array) and re-sets no-store with the original
+ *  setHeader (camada-all-60f8). */
+function signal(res: ServerResponse): void {
+  const set = res.setHeader, writeHead = res.writeHead;
+  const isCc = (n: unknown) => typeof n === 'string' && n.toLowerCase() === 'cache-control';
+  const strip = (h: unknown): unknown => {
+    if (Array.isArray(h)) {
+      if (h.length && Array.isArray(h[0])) return h.filter((p) => !isCc(p[0]));
+      const out: unknown[] = [];
+      for (let i = 0; i < h.length; i += 2) if (!isCc(h[i])) out.push(h[i], h[i + 1]);
+      return out;
+    }
+    if (h && typeof h === 'object') return Object.fromEntries(Object.entries(h).filter(([k]) => !isCc(k)));
+    return h;
+  };
+  res.writeHead = function (this: ServerResponse, status: number, ...rest: unknown[]) {
+    if (!this.headersSent) set.call(this, 'cache-control', 'no-store');
+    return (writeHead as (...a: unknown[]) => ServerResponse).call(this, status, ...rest.map(strip));
+  } as ServerResponse['writeHead'];
+  res.setHeader('x-camada-challenge', '1');
+  res.setHeader('cache-control', 'no-store');
+}
 
 /**
  * The server middleware: `export default camada()` in `server/middleware/camada.ts`. Reads
@@ -81,6 +108,9 @@ export function camada(opts: CamadaNuxtOptions = {}): EventHandler {
     // x-rid, set up front like the cookie: h3 keeps node.res headers through the app's answer,
     // a returned web Response included. Camada's own answers returned above never get it.
     if (res) guarded(() => setResponseHeader(event, 'x-rid', vars.rid), undefined);
+    // A non-HTML request under a challenge verdict reaches the app; mark its response so the
+    // frontend can challenge, and keep it out of shared caches (camada-all-60f8).
+    if (vars.signalled && res) guarded(() => signal(res), undefined);
     // Ship with the real status once the response has settled — a Node response, or the mock a
     // web preset provides. 'close' alone means the client left mid-response (an aborted SSE):
     // the status set so far and dur up to the abort, the fetch adapters' cancel semantics; it

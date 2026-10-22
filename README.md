@@ -56,9 +56,10 @@ so an unprovisioned environment behaves exactly as if camada were not installed.
 3. Runs your ordered custom rules, then the allow, block and challenge lists.
 4. **Block** → `403` with `x-block-reason` before your route; the event still ships, with
    `st: 403` and `blk: <reason>` so the analyst counts SDK blocks apart from your own 403s.
-5. **Challenge** → a `403` proof-of-work page for HTML navigations, `403 {"error":
-   "challenge_required"}` for anything else; the solution posts to `/__camada/challenge`,
-   which sets `_cch` and 302s back.
+5. **Challenge** → a `403` proof-of-work page for HTML navigations; anything else (API
+   calls, `fetch()`, Nuxt's `_payload.json`) passes to your app with `x-camada-challenge: 1` and
+   `cache-control: no-store` on the response (and `chs: 1` on the event) so your frontend can
+   choose to challenge. The solution posts to `/__camada/challenge`, which sets `_cch` and 302s back.
 6. Otherwise the request falls through to your routes and pages. The event ships on the
    response's `finish` with the real `statusCode` — a Node response, or the mock a web preset
    provides; `st` is null only for an event without a response object at all. A client that
