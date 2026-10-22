@@ -6,9 +6,17 @@
 
 - A non-HTML request under a challenge verdict (an API call, `fetch()`, Nuxt's `_payload.json`) now
   passes to your app instead of getting `403 {"error":"challenge_required"}`. The response carries
-  `x-camada-challenge: 1` and `cache-control: no-store` (the app cannot override it, on Node or under web/edge presets) and the event
-  carries `chs: 1`, so your frontend can choose to challenge. HTML navigations still get the
+  `x-camada-challenge: 1` and `no-store` on `cache-control` and the CDN cache headers (the app
+  cannot override them, on Node or under web/edge presets) and the event carries `chs: 1`, so your frontend can choose to challenge. HTML navigations still get the
   proof-of-work page. (camada-all-60f8)
+
+### Fixed
+
+- A signalled response (`x-camada-challenge: 1`) now also sets `cdn-cache-control`,
+  `surrogate-control`, `cloudflare-cdn-cache-control`, `vercel-cdn-cache-control` and
+  `netlify-cdn-cache-control` to `no-store`, overriding the app's. CDNs read those ahead of
+  `cache-control`, so an app-set one could still let a shared cache keep the per-client copy.
+  (camada-all-5pog)
 
 ## 0.1.4 (2026-10-12; follows 0.1.3)
 
