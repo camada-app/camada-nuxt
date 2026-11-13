@@ -1,9 +1,11 @@
 # @camada/nuxt
 
+[Frameworks](https://www.camada.app/frameworks) · [Docs](https://www.camada.app/docs) · [Bot detection](https://www.camada.app/bot-detection) · [Bot signal test](https://www.camada.app/tools/bot-test) · [Pricing](https://www.camada.app/pricing).
+
 camada for [Nuxt](https://nuxt.com) as h3 server middleware: enforces the tenant snapshot inline
 (your ordered custom rules, then block, allow, challenge), serves a first-party proof-of-work
 challenge page and beacon, records the outcomes your server routes know (`track()`), and ships
-one wire event per request with the status your app really answered. Fails open by design — a
+one wire event per request with the status your app really answered. Fails open by design: a
 camada outage or bug never 5xxes your app.
 
 ```sh
@@ -47,10 +49,10 @@ so an unprovisioned environment behaves exactly as if camada were not installed.
 
 1. Refreshes the snapshot off-path (lazy mode by default: no interval timers, so the same
    build runs on a Node server and on an edge preset). Every poll and event batch carries
-   `x-camada-sdk: @camada/nuxt/<version>`, and polls ask for snapshot v5 — the container that
+   `x-camada-sdk: @camada/nuxt/<version>`, and polls ask for snapshot v5, the container that
    carries your ordered custom rules.
-2. Resolves the client from the peer h3 vouches for — `getRequestIP(event)`: the socket
-   address, or the `clientAddress` a Nitro preset stamped on the context — combined with
+2. Resolves the client from the peer h3 vouches for (`getRequestIP(event)`: the socket
+   address, or the `clientAddress` a Nitro preset stamped on the context), combined with
    `X-Forwarded-For` only under your tenant's trusted-proxy config. A bare header
    (`x-forwarded-for`, `cf-connecting-ip`, `x-real-ip`) never becomes the client on its own.
 3. Runs your ordered custom rules, then the allow, block and challenge lists.
@@ -61,8 +63,8 @@ so an unprovisioned environment behaves exactly as if camada were not installed.
    `no-store` on `cache-control` and the CDN cache headers on the response (and `chs: 1` on the event) so your frontend can
    choose to challenge. The solution posts to `/__camada/challenge`, which sets `_cch` and 302s back.
 6. Otherwise the request falls through to your routes and pages. The event ships on the
-   response's `finish` with the real `statusCode` — a Node response, or the mock a web preset
-   provides; `st` is null only for an event without a response object at all. A client that
+   response's `finish` with the real `statusCode` (a Node response, or the mock a web preset
+   provides; `st` is null only for an event without a response object at all). A client that
    disconnects mid-response (an aborted SSE) still ships its one event, with the status set so
    far and `dur` up to the disconnect. Your own
    `readBody()` still sees the request body (the middleware hands h3 the stream it built), and
@@ -106,10 +108,10 @@ import { scriptTag } from '@camada/nuxt';
 export default defineEventHandler((event) => `<html><head>${scriptTag(event)}</head><body>…</body></html>`);
 ```
 
-`scriptTag(event)` returns `<script src="/_cam/b.js?r=<rid>" async></script>` — the `rid` is this
+`scriptTag(event)` returns `<script src="/_cam/b.js?r=<rid>" async></script>`: the `rid` is this
 request's event id, so the analyst joins the beacon to the page view. The middleware serves the
 script at `GET /_cam/b.js` (cacheable, 1 h) and relays `POST /_cam/fp` (≤ 32 KB, answers 204)
-onto the event batch as a `sig: 1` row stamped with the client ip camada resolved — never the
+onto the event batch as a `sig: 1` row stamped with the client ip camada resolved, never the
 one the body claims. Both endpoints sit behind the verdict: a blocked client gets 403 there
 too. The tag is `''` where the middleware did not run or the project turned the beacon off in
 its settings, and the endpoints stand down with it.
@@ -132,7 +134,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 `track(event, name, { user? })` ships `{ et, uid, rid, sid, ip, ts }` joined to this request's
-event. The user identifier is HMAC-hashed in-process with the ingest token — the raw value never
+event. The user identifier is HMAC-hashed in-process with the ingest token: the raw value never
 leaves the process. It never throws and is a no-op where the middleware did not run. The event
 name is free-form; the analyst's rules read this vocabulary:
 
@@ -150,7 +152,7 @@ name is free-form; the analyst's rules read this vocabulary:
 This is the in-app position: the beacon, the client hints the browser sends, the status your
 app answered, the session, and the outcomes your routes report. h3 vouches for the peer
 address (the socket, or a preset's `clientAddress`) and for nothing about the connection
-beyond it: no ASN, country or TLS fingerprint, so rules on those conditions do not enforce here. The protocol on the event is `null` — h3 does not see the client's own —
+beyond it: no ASN, country or TLS fingerprint, so rules on those conditions do not enforce here. The protocol on the event is `null` (h3 does not see the client's own),
 and the one forwarded header h3 does honour is `x-forwarded-proto`, which decides only whether
 the session cookie is marked `Secure`. Node normalises header order, so the raw-wire-order
 signal is not available either.
@@ -159,3 +161,13 @@ signal is not available either.
 
 Every entry point runs inside camada's guard. A dead ingest, a corrupt snapshot, a bug in this
 package: telemetry is lost, the request is not.
+
+## Docs and links
+
+Read the guides on [camada.app](https://www.camada.app/docs).
+
+- [Frameworks](https://www.camada.app/frameworks): browse all server SDKs and Web-fetch adapters.
+- [Custom rules](https://www.camada.app/docs/rules) and [Challenge](https://www.camada.app/docs/challenge): order your rules and tune browser checks.
+- [Bot detection](https://www.camada.app/bot-detection): see how snapshots, beacons, and `track()` catch bots.
+- [Bot signal test](https://www.camada.app/tools/bot-test): check live browser, HTTP, and TLS signals from your client.
+- [Pricing](https://www.camada.app/pricing): compare the free tier and paid plans.

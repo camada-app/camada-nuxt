@@ -18,6 +18,29 @@
     "check": "tsc --noEmit"
   },
   "description": "camada SDK for Nuxt (h3 server middleware): snapshot enforcement, first-party challenge and beacon, track() outcomes, events shipped with the settled status",
+  "homepage": "https://www.camada.app/frameworks",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/camada-app/camada-nuxt.git"
+  },
+  "bugs": {
+    "url": "https://github.com/camada-app/camada-nuxt/issues"
+  },
+  "keywords": [
+    "camada",
+    "nuxt",
+    "vue",
+    "h3",
+    "nitro",
+    "bot-detection",
+    "bot-protection",
+    "credential-stuffing",
+    "account-takeover",
+    "rate-limiting",
+    "proof-of-work",
+    "ai-scraper",
+    "security"
+  ],
   "exports": {
     ".": {
       "import": {
