@@ -97,6 +97,26 @@ overwritten.
 
 `CAMADA_DISABLED=1` switches everything off, checked per request.
 
+## Credential hash (opt-in, off by default)
+
+Set `tokenHash: true` or `CAMADA_TOKEN_HASH=1` to include `tk` on request
+events with an eligible credential. An explicit `tokenHash: false` overrides
+the environment variable.
+
+`tk` is the first 32 hex characters of HMAC-SHA256, keyed with your ingest
+token, over `tok:` plus the credential. The credential is the part of
+`Authorization` after the scheme (for example, the Bearer token). Set
+`tokenHeader: 'x-api-key'` or `CAMADA_TOKEN_HEADER` to prefer the whole value
+of that header when it contains an eligible credential. The credential itself
+stays in the process. Values shorter than 8 characters or outside printable
+ASCII are skipped.
+
+camada uses `tk` to spot one credential replayed from many clients. Enable it
+for random tokens or API keys. Avoid enabling it for human passwords over
+Basic auth because anyone holding both your events and your ingest token
+could test password guesses against the hash. Rotating the ingest token
+changes every `tk`.
+
 ## The first-party beacon
 
 Bots that never run JavaScript are the cheapest to catch. The Nitro plugin above pushes the tag
