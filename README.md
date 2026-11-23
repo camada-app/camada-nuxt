@@ -105,11 +105,12 @@ the environment variable.
 
 `tk` is the first 32 hex characters of HMAC-SHA256, keyed with your ingest
 token, over `tok:` plus the credential. The credential is the part of
-`Authorization` after the scheme (for example, the Bearer token). Set
-`tokenHeader: 'x-api-key'` or `CAMADA_TOKEN_HEADER` to prefer the whole value
-of that header when it contains an eligible credential. The credential itself
-stays in the process. Values shorter than 8 characters or outside printable
-ASCII are skipped.
+`Authorization` after the scheme (for example, the Bearer token), or the whole
+value when there is no scheme. Set `tokenHeader: 'x-api-key'` or
+`CAMADA_TOKEN_HEADER` to use that header's whole value when it gives an eligible
+credential. Otherwise, the SDK falls back to `Authorization`. The credential
+itself stays in the process. Values shorter than 8 characters or outside
+printable ASCII are skipped.
 
 camada uses `tk` to spot one credential replayed from many clients. Enable it
 for random tokens or API keys. Avoid enabling it for human passwords over
