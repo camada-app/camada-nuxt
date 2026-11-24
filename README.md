@@ -109,8 +109,7 @@ token, over `tok:` plus the credential. The credential is the part of
 value when there is no scheme. Set `tokenHeader: 'x-api-key'` or
 `CAMADA_TOKEN_HEADER` to use that header's whole value when it gives an eligible
 credential. Otherwise, the SDK falls back to `Authorization`. The credential
-itself stays in the process. Values shorter than 8 characters or outside
-printable ASCII are skipped.
+itself stays in the process. The credential, after any scheme, must contain at least 8 printable ASCII characters; otherwise no `tk` is sent.
 
 camada uses `tk` to spot one credential replayed from many clients. Enable it
 for random tokens or API keys. Avoid enabling it for human passwords over
