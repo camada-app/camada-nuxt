@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 (2026-11-24; follows 0.2.0)
+
+Follows `@camada/core` 0.7.0. Built against `@camada/core` 0.7.0 and `@camada/browser` 0.5.0.
+
+### Added
+
+- Opt-in credential hash from `@camada/core` 0.7.0, off by default. With option `tokenHash: true` or env `CAMADA_TOKEN_HASH=1`, request events that carry a usable credential ship `tk`, a keyed HMAC of the credential computed in process. `tokenHeader` (or `CAMADA_TOKEN_HEADER`) names a header such as `x-api-key` to use in place of `Authorization`. The credential itself never leaves the process. See the README, "Credential hash". (camada-all-tvkd)
+
 ## 0.2.0 (2026-10-26; follows 0.1.4)
 
 Built against `@camada/core` 0.6.0 (customer `matches` rules on the linear-time re2js engine inside a per-request regex budget; the beacon relay strips SDK-attested keys) and `@camada/browser` 0.4.0.
